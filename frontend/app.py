@@ -10,7 +10,7 @@ from ai_bi_assistant.utils.chart import create_chart
 # CONFIG / CONSTANTS
 # =====================================================
 
-BACKEND_URL = "http://127.0.0.1:8000"
+BACKEND_URL = "https://ai-bi-assistant.onrender.com"
 ASK_ENDPOINT = f"{BACKEND_URL}/ask"
 
 BG = "#121212"
