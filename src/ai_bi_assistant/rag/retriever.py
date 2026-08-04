@@ -26,7 +26,7 @@ def get_vector_db():
     return _vector_db
 
 
-def retrieve_documents(question: str, k: int = 4):
+def retrieve_documents(question: str, k: int = 2):
 
     vector_db = get_vector_db()
 
