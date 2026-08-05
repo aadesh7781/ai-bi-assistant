@@ -8,16 +8,23 @@ from langchain_core.embeddings import Embeddings
 load_dotenv()
 
 
+# =====================================================
+# Jina Embeddings
+# =====================================================
+
 class JinaEmbeddings(Embeddings):
+
     def __init__(self):
         self.api_key = os.getenv("JINA_API_KEY")
         self.url = "https://api.jina.ai/v1/embeddings"
         self.model = "jina-embeddings-v3"
 
     def embed_documents(self, texts):
+
         embeddings = []
 
         for text in texts:
+
             response = requests.post(
                 self.url,
                 headers={
@@ -61,18 +68,22 @@ class JinaEmbeddings(Embeddings):
         )
 
         print("STATUS:", response.status_code)
-        print("BODY:", response.text)
 
         response.raise_for_status()
 
         return response.json()["data"][0]["embedding"]
 
 
+# =====================================================
+# Singleton Chroma
+# =====================================================
+
 _embeddings = None
 _vector_db = None
 
 
 def get_vector_db():
+
     global _embeddings
     global _vector_db
 
@@ -94,21 +105,177 @@ def get_vector_db():
     return _vector_db
 
 
-def retrieve_documents(question: str, k: int = 2):
+# =====================================================
+# Query Expansion
+# =====================================================
 
-    print("=" * 60)
-    print("QUESTION:", repr(question))
-    print("TYPE:", type(question))
-    print("=" * 60)
+def expand_query(question: str):
+
+    q = question.lower()
+
+    expanded = {question}
+
+    # -----------------------------------------
+    # CEO LETTER
+    # -----------------------------------------
+
+    if "ceo" in q or "shareholder" in q or "letter" in q:
+
+        expanded.update([
+            "Letter to Shareholders",
+            "Shareholder Letter",
+            "Letter from Daniel Ek",
+            "Daniel Ek",
+            "Founder Letter",
+            "Message from CEO",
+        ])
+
+    # -----------------------------------------
+    # BUSINESS MODEL
+    # -----------------------------------------
+
+    if "business model" in q or "how spotify makes money" in q:
+
+        expanded.update([
+            "Business Model",
+            "Premium",
+            "Ad-Supported",
+            "Subscriptions",
+            "Marketplace",
+            "Monetization",
+        ])
+
+    # -----------------------------------------
+    # REVENUE
+    # -----------------------------------------
+
+    if "revenue" in q:
+
+        expanded.update([
+            "Consolidated Revenue",
+            "Financial Statements",
+            "Income Statement",
+            "Financial Highlights",
+            "Net Revenue",
+            "Revenue Growth",
+        ])
+
+    # -----------------------------------------
+    # GROWTH
+    # -----------------------------------------
+
+    if "growth" in q:
+
+        expanded.update([
+            "Year-over-year",
+            "YoY",
+            "Premium Subscribers",
+            "Monthly Active Users",
+            "MAUs",
+            "Financial Highlights",
+        ])
+
+    # -----------------------------------------
+    # AI
+    # -----------------------------------------
+
+    if "ai" in q or "artificial intelligence" in q:
+
+        expanded.update([
+            "Machine Learning",
+            "Artificial Intelligence",
+            "Algorithms",
+            "Recommendation System",
+            "AI Playlist",
+            "AI DJ",
+            "AI investments",
+            "Personalization",
+        ])
+
+    # -----------------------------------------
+    # Podcasts
+    # -----------------------------------------
+
+    if "podcast" in q:
+
+        expanded.update([
+            "Podcast",
+            "Podcasts",
+            "Podcast Business",
+            "Podcast Strategy",
+            "Creators",
+        ])
+
+    # -----------------------------------------
+    # Audiobooks
+    # -----------------------------------------
+
+    if "audiobook" in q:
+
+        expanded.update([
+            "Audiobooks",
+            "Audiobook Strategy",
+        ])
+
+    # -----------------------------------------
+    # Risks
+    # -----------------------------------------
+
+    if "risk" in q:
+
+        expanded.update([
+            "Risk Factors",
+            "Financial Risks",
+            "Business Risks",
+            "Operational Risks",
+        ])
+
+    return list(expanded)
+
+
+# =====================================================
+# Retriever
+# =====================================================
+
+def retrieve_documents(question: str, k: int = 8):
+
+    print("=" * 80)
+    print("QUESTION:", question)
+    print("=" * 80)
 
     vector_db = get_vector_db()
 
-    docs = vector_db.max_marginal_relevance_search(
-    query=str(question),
-    k=5,
-    fetch_k=20,
-)
+    queries = expand_query(question)
 
-    print(f"Retrieved {len(docs)} documents.")
+    print("\nExpanded Queries:")
 
-    return docs
+    for q in queries:
+        print("-", q)
+
+    print()
+
+    documents = []
+    seen = set()
+
+    for q in queries:
+
+        docs = vector_db.max_marginal_relevance_search(
+            query=q,
+            k=3,
+            fetch_k=20,
+        )
+
+        for doc in docs:
+
+            key = (
+                doc.metadata.get("source"),
+                doc.metadata.get("page"),
+            )
+
+            if key not in seen:
+                seen.add(key)
+                documents.append(doc)
+
+    print(f"Retrieved {len(documents)} unique documents.")
+
+    return documents[:k]

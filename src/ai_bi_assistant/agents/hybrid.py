@@ -23,36 +23,84 @@ You are a Senior Business Intelligence Analyst.
 
 You have two independent sources of information.
 
-====================================================
+=========================================================
 SQL RESULTS
-====================================================
+=========================================================
 
 {sql_results}
 
-====================================================
+=========================================================
 DOCUMENT CONTEXT
-====================================================
+=========================================================
 
 {document_context}
 
-====================================================
-QUESTION
-====================================================
+=========================================================
+USER QUESTION
+=========================================================
 
 {question}
 
 Instructions:
 
-- Use BOTH SQL results and document context.
-- Never invent numbers.
-- Never estimate missing values.
-- Never perform arithmetic or calculations.
-- Use SQL values exactly as provided.
-- If comparison is impossible, clearly explain why.
-- Mention which insights came from SQL and which came from the annual report.
-- Give a concise executive summary.
-- Do NOT explain your reasoning.
-- Return only the final answer.
+1. Use BOTH SQL results and document context whenever available.
+
+2. Treat SQL results as factual.
+   - Never modify SQL values.
+   - Never estimate SQL values.
+   - Never perform your own calculations.
+
+3. Treat document context as factual.
+   - Carefully inspect paragraphs AND tables.
+   - If financial tables contain revenue, growth,
+     subscribers, MAUs, operating income or other
+     numeric values, extract those values exactly.
+   - Never say information is unavailable if it
+     exists anywhere in the retrieved context.
+
+4. For comparison questions:
+   - Compare SQL values with annual report values.
+   - Mention differences in units or currencies.
+   - Explain clearly if comparison cannot be made.
+
+5. If only SQL exists:
+   Answer using SQL only.
+
+6. If only document context exists:
+   Answer using the annual report only.
+
+7. Structure your answer like this:
+
+Executive Summary
+
+SQL Insights
+- ...
+
+Annual Report Insights
+- ...
+
+Comparison
+- ...
+
+8. Whenever you use document information,
+mention the source file and page number.
+
+Example:
+
+Source:
+Annual-Report-2024.pdf
+Page 151
+
+9. If multiple documents support the answer,
+cite each source separately.
+
+10. Never invent numbers.
+
+11. Never invent citations.
+
+12. Never use external knowledge.
+
+Return ONLY the final answer.
 """
 )
 
@@ -129,39 +177,67 @@ def hybrid_answer(question: str):
             print(sql)
             print("=" * 80)
 
-            print("Validating SQL...")
             validate_sql(sql)
-            print("SQL VALIDATED")
-
-            print("Executing SQL...")
 
             rows = execute_sql(sql)
 
-            print(f"ROWS RETURNED: {len(rows)}")
+            print(f"Rows Returned: {len(rows)}")
 
         sql_summary = summarize_sql(rows)
 
         # --------------------------------------------
-        # Step 3 : Retrieve Documents
+        # Step 3 : RAG
         # --------------------------------------------
 
         document_context = ""
 
         if rag_question:
 
-            print("Retrieving RAG documents...")
+            print("Retrieving documents...")
 
             docs = retrieve_documents(
                 rag_question,
-                k=5,
+                k=8,
             )
 
             print(f"Retrieved {len(docs)} documents.")
 
-            document_context = "\n\n".join(
-                doc.page_content
-                for doc in docs
-            )
+            context_parts = []
+
+            for i, doc in enumerate(docs, start=1):
+
+                source = doc.metadata.get(
+                    "source",
+                    "Unknown"
+                )
+
+                source = source.split("/")[-1].split("\\")[-1]
+
+                page = doc.metadata.get(
+                    "page",
+                    "Unknown"
+                )
+
+                context_parts.append(
+f"""
+==================================================
+DOCUMENT {i}
+
+SOURCE FILE:
+{source}
+
+PAGE:
+{page}
+
+CONTENT:
+
+{doc.page_content}
+
+==================================================
+"""
+                )
+
+            document_context = "\n".join(context_parts)
 
         # --------------------------------------------
         # Step 4 : Final LLM
