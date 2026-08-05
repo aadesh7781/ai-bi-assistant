@@ -28,7 +28,7 @@ dependencies = [
     "sqlalchemy>=2.0.51",
     "streamlit>=1.60.0",
     "uvicorn>=0.52.1",
-    "gunicorn>=23.0.0"
+    "gunicorn>=23.0.0",
 ]
 
 [project.scripts]

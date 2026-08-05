@@ -1,9 +1,15 @@
 import os
 
+from dotenv import load_dotenv
+
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+
+from langchain_openai import OpenAIEmbeddings
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+load_dotenv()
 
 
 def ingest_documents():
@@ -47,18 +53,20 @@ def ingest_documents():
     print("\nSplitting documents...")
 
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200,
+        chunk_size=800,
+        chunk_overlap=150,
     )
 
     chunks = splitter.split_documents(documents)
 
     print(f"Created {len(chunks)} chunks.")
 
-    print("\nLoading embedding model...")
+    print("\nConnecting to Jina AI...")
 
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    embeddings = OpenAIEmbeddings(
+        api_key=os.getenv("JINA_API_KEY"),
+        base_url="https://api.jina.ai/v1",
+        model="jina-embeddings-v3",
     )
 
     print("Creating Chroma vector database...")
@@ -69,7 +77,9 @@ def ingest_documents():
         persist_directory="chroma_db",
     )
 
-    print("\nVector database created successfully!")
+    print("\n✅ Vector database created successfully!")
+
+    print(f"Stored {len(chunks)} chunks.")
 
     print(f"Location: {os.path.abspath('chroma_db')}")
 
