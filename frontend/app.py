@@ -1,4 +1,7 @@
 import html as html_lib
+import re
+import threading
+import time
 
 import requests
 import streamlit as st
@@ -19,10 +22,11 @@ CARD_ALT = "#282828"
 GREEN = "#1DB954"
 WHITE = "#FFFFFF"
 MUTED = "#B3B3B3"
+BLUE = "#3B9EFF"
 
 st.set_page_config(
-    page_title="Spotify Intelligence Platform",
-    page_icon="🎵",
+    page_title="AI Business Intelligence Assistant",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -504,6 +508,70 @@ st.markdown(
         margin: 0.6rem 0;
     }}
 
+    /* ---------- Info banner ---------- */
+
+    .info-banner {{
+        background-color: rgba(59, 158, 255, 0.10);
+        border: 1px solid rgba(59, 158, 255, 0.35);
+        border-radius: 12px;
+        padding: 0.85rem 1.1rem;
+        color: #cfe6ff;
+        font-size: 0.85rem;
+        line-height: 1.5;
+        margin-bottom: 1.1rem;
+        display: flex;
+        gap: 0.6rem;
+        align-items: flex-start;
+    }}
+
+    .info-banner .icon {{
+        color: {BLUE};
+        font-size: 1.05rem;
+        line-height: 1.4;
+    }}
+
+    .info-banner b {{
+        color: {WHITE};
+    }}
+
+    /* ---------- Answer sections ---------- */
+
+    .answer-section {{
+        margin: 1.1rem 0 0.4rem 0;
+    }}
+
+    .answer-section-title {{
+        font-size: 0.98rem;
+        font-weight: 700;
+        color: {GREEN};
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        margin-bottom: 0.35rem;
+        padding-bottom: 0.35rem;
+        border-bottom: 1px solid #262626;
+    }}
+
+    .sources-item {{
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem 0.7rem;
+        background-color: {CARD_ALT};
+        border-radius: 8px;
+        margin-bottom: 0.4rem;
+        font-size: 0.85rem;
+    }}
+
+    .sources-item .fname {{
+        color: {WHITE};
+        font-weight: 600;
+    }}
+
+    .sources-item .page {{
+        color: {MUTED};
+    }}
+
     /* ---------- Footer ---------- */
 
     .footer-wrap {{
@@ -656,7 +724,7 @@ def build_display_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return display_df
 
 
-def render_table_html(display_df: pd.DataFrame, raw_df: pd.DataFrame, max_rows: int = 200):
+def render_table_html(display_df: pd.DataFrame, raw_df: pd.DataFrame, max_rows: int = 20):
     """Render a dark, dashboard-styled HTML table instead of the default st.dataframe."""
 
     if display_df is None or display_df.empty:
@@ -690,10 +758,7 @@ def render_table_html(display_df: pd.DataFrame, raw_df: pd.DataFrame, max_rows: 
 
     note = ""
     if truncated:
-        note = (
-            f'<div class="table-note">Showing first {max_rows} '
-            f'of {len(display_df)} rows</div>'
-        )
+        note = f'<div class="table-note">Showing first {max_rows} rows.</div>'
 
     table_html = f"""
     <div class="bi-table-wrap">
@@ -881,12 +946,165 @@ def check_backend_connection():
 
 
 # =====================================================
+# ANSWER PARSING (sections + sources)
+# =====================================================
+# The backend's answer text is plain LLM output. For hybrid answers it is
+# instructed to use section headings (Executive Summary / SQL Insights /
+# Annual Report Insights / Comparison) and inline "Source: file / Page N"
+# citations. We detect these patterns for nicer display, but never invent
+# structure or sources that aren't actually present in the text.
+
+SECTION_ORDER = [
+    ("Executive Summary", "🧭"),
+    ("SQL Insights", "🗄️"),
+    ("Annual Report Insights", "📄"),
+    ("Comparison", "🔀"),
+]
+
+SOURCE_PATTERN = re.compile(
+    r"Source:?\s*\n?\s*([A-Za-z0-9 _\-\.]+?\.pdf)\s*\n?\s*Page:?\s*(\d+)",
+    re.IGNORECASE,
+)
+
+
+def extract_sources(answer: str):
+    """Pull (filename, page) pairs cited inline in the answer text."""
+
+    if not answer:
+        return [], answer
+
+    sources = []
+    for match in SOURCE_PATTERN.finditer(answer):
+        fname = match.group(1).strip()
+        page = match.group(2).strip()
+        pair = (fname, page)
+        if pair not in sources:
+            sources.append(pair)
+
+    cleaned = SOURCE_PATTERN.sub("", answer).strip()
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+
+    return sources, cleaned
+
+
+def split_answer_sections(answer: str):
+    """Split answer text into known sections if the headings are present.
+
+    Returns a list of (title, icon, body) tuples. If none of the known
+    headings are found, returns a single ("Executive Summary", body) tuple
+    so plain SQL/RAG answers still render inside a consistent section card.
+    """
+
+    if not answer:
+        return [("Executive Summary", "🧭", "")]
+
+    positions = []
+    for title, icon in SECTION_ORDER:
+        m = re.search(rf"(?im)^\s*{re.escape(title)}\s*:?\s*$", answer)
+        if m:
+            positions.append((m.start(), m.end(), title, icon))
+
+    if not positions:
+        return [("Executive Summary", "🧭", answer.strip())]
+
+    positions.sort(key=lambda p: p[0])
+
+    sections = []
+    for i, (start, end, title, icon) in enumerate(positions):
+        body_start = end
+        body_end = positions[i + 1][0] if i + 1 < len(positions) else len(answer)
+        body = answer[body_start:body_end].strip()
+        if body:
+            sections.append((title, icon, body))
+
+    return sections
+
+
+def render_answer(answer: str):
+    """Render the answer with section headers, then a Sources Used expander."""
+
+    sources, cleaned = extract_sources(answer)
+    sections = split_answer_sections(cleaned)
+
+    for title, icon, body in sections:
+        st.markdown(
+            f'<div class="answer-section"><div class="answer-section-title">{icon} {title}</div></div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(body)
+
+    if sources:
+        with st.expander("📚 Sources Used", expanded=False):
+            for fname, page in sources:
+                st.markdown(
+                    f"""
+                    <div class="sources-item">
+                        <span class="fname">📄 {html_lib.escape(fname)}</span>
+                        <span class="page">Page {html_lib.escape(page)}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+
+# =====================================================
+# LOADING EXPERIENCE (progress messages)
+# =====================================================
+
+PROGRESS_STEPS = [
+    "🔎 Analyzing question...",
+    "🧠 Generating SQL...",
+    "📚 Searching annual reports...",
+    "✨ Preparing answer...",
+]
+
+
+def call_backend_with_progress(question: str):
+    """Call the /ask endpoint while cycling progress messages in the UI.
+
+    The request runs on a background thread so the main thread can update
+    a status placeholder with rotating messages until the response is back.
+    """
+
+    result = {}
+
+    def worker():
+        try:
+            result["response"] = requests.post(
+                ASK_ENDPOINT,
+                json={"question": question},
+                timeout=120,
+            )
+        except requests.exceptions.RequestException as exc:
+            result["error"] = exc
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+
+    with st.status("Working on it...", expanded=True) as status:
+        step_index = 0
+        while thread.is_alive():
+            status.update(label=PROGRESS_STEPS[step_index % len(PROGRESS_STEPS)])
+            step_index += 1
+            time.sleep(1.4)
+        thread.join()
+        status.update(label="✅ Done", state="complete")
+
+    if "error" in result:
+        raise result["error"]
+
+    return result.get("response")
+
+
+# =====================================================
 # RESULT RENDERING (chart + table, responsive)
 # =====================================================
 
 def render_sql(sql: str):
-    st.markdown('<div class="sql-header">🧠 Generated SQL</div>', unsafe_allow_html=True)
-    st.code(sql or "-- no SQL generated for this question", language="sql")
+    if not sql:
+        return
+    with st.expander("🧠 Generated SQL", expanded=False):
+        st.code(sql, language="sql")
 
 
 def render_results(rows, kpi_title="📈 Key Metrics"):
@@ -950,7 +1168,11 @@ def ask_question(q: str):
 
 with st.sidebar:
 
-    st.markdown('<div class="sb-brand">🎵 Spotify Intelligence</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sb-brand">📊 AI BI Assistant</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sb-section-title" style="margin-top:-0.6rem;">Hybrid AI (SQL + RAG)</div>',
+        unsafe_allow_html=True,
+    )
 
     backend_up = check_backend_connection()
 
@@ -964,40 +1186,42 @@ with st.sidebar:
     st.markdown(
         f"""
         <div class="status-row"><span class="label">Backend</span>{backend_value}</div>
-        <div class="status-row"><span class="label">LLM</span><span class="value">Llama 3.3</span></div>
         """,
         unsafe_allow_html=True,
     )
 
     st.markdown('<hr class="sb-divider" />', unsafe_allow_html=True)
 
-    st.markdown('<div class="sb-section-title">📊 SQL Analytics</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sb-section-title">📊 SQL</div>', unsafe_allow_html=True)
 
     sql_questions = {
-        "Top Genres": "What are the top genres by popularity?",
+        "Total Revenue": "What is our total revenue?",
         "Monthly Revenue": "Show monthly revenue",
-        "Top Artists": "Who are the top artists by popularity?",
-        "Countries": "Show revenue by country",
+        "Yearly Revenue": "Show yearly revenue",
+        "Top 10 Artists": "Who are the top 10 artists by popularity?",
+        "Top Genres": "What are the top genres by popularity?",
+        "Top Countries": "What are the top countries by revenue?",
+        "Revenue by Country": "Show revenue by country",
     }
     for label, q in sql_questions.items():
         st.button(label, key=f"nav_{label}", on_click=ask_question, args=(q,), use_container_width=True)
 
     st.markdown('<hr class="sb-divider" />', unsafe_allow_html=True)
 
-    st.markdown('<div class="sb-section-title">📄 Report Intelligence</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sb-section-title">📄 RAG</div>', unsafe_allow_html=True)
 
     report_questions = {
-        "AI Strategy": "What is Spotify's AI strategy according to the annual report?",
-        "Financial Risks": "What are the financial risks mentioned in the annual report?",
-        "CEO Letter": "Summarize the CEO letter from the annual report.",
-        "Business Model": "Describe Spotify's business model from the annual report.",
+        "AI Strategy": "What is Spotify's AI strategy?",
+        "Business Model": "Describe Spotify's business model.",
+        "Financial Risks": "What financial risks are mentioned?",
+        "Major Shareholders": "Who are the major shareholders?",
     }
     for label, q in report_questions.items():
         st.button(label, key=f"nav_{label}", on_click=ask_question, args=(q,), use_container_width=True)
 
     st.markdown('<hr class="sb-divider" />', unsafe_allow_html=True)
 
-    st.markdown('<div class="sb-section-title">🤖 Hybrid Analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sb-section-title">🔀 Hybrid</div>', unsafe_allow_html=True)
 
     hybrid_questions = {
         "Revenue Comparison": "Compare our revenue with Spotify's reported revenue.",
@@ -1014,21 +1238,40 @@ with st.sidebar:
         st.rerun()
 
 # =====================================================
+# INFO BANNER (Render free-tier notice)
+# =====================================================
+
+st.markdown(
+    """
+    <div class="info-banner">
+        <span class="icon">ℹ️</span>
+        <span>
+            This project is hosted on Render's free tier.
+            If the backend has been inactive, the first request may take
+            <b>30–90 seconds</b> while the server wakes up.
+            If you receive a connection error, please wait a moment and try again.
+        </span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# =====================================================
 # HERO HEADER
 # =====================================================
 
 st.markdown(
     """
     <div class="hero">
-        <div class="hero-title">🎵 Spotify Intelligence Platform</div>
-        <div class="hero-subtitle">Enterprise AI Business Intelligence</div>
-        <div class="hero-tagline">Natural Language SQL &bull; Annual Report Intelligence &bull; Hybrid Analytics</div>
+        <div class="hero-title">📊 AI Business Intelligence Assistant</div>
+        <div class="hero-tagline">Ask questions about your streaming business using SQL + AI.</div>
         <div class="badge-row">
-            <span class="tech-badge">Llama 3.3</span>
             <span class="tech-badge">FastAPI</span>
             <span class="tech-badge">PostgreSQL</span>
             <span class="tech-badge">LangChain</span>
-            <span class="tech-badge">Chroma</span>
+            <span class="tech-badge">Groq</span>
+            <span class="tech-badge">ChromaDB</span>
+            <span class="tech-badge">Jina Embeddings</span>
         </div>
     </div>
     <div class="hero-accent"></div>
@@ -1058,9 +1301,9 @@ if not st.session_state.messages:
     st.markdown(
         """
         <div class="welcome-wrap">
-            <div class="eyebrow">Today's Insights</div>
-            <div class="welcome-title">🎵 Welcome to Spotify Intelligence</div>
-            <div class="welcome-sub">Ask anything about business metrics, revenue, Spotify reports, or hybrid analysis.</div>
+            <div class="eyebrow">Get Started</div>
+            <div class="welcome-title">📊 Welcome to your AI BI Assistant</div>
+            <div class="welcome-sub">Ask anything about business metrics, revenue, Spotify's annual reports, or hybrid analysis.</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1096,13 +1339,15 @@ for message in st.session_state.messages:
 
     with st.chat_message(message["role"]):
 
-        st.markdown(message["content"])
+        if message["role"] == "assistant":
+            render_answer(message["content"])
+        else:
+            st.markdown(message["content"])
 
         if message["role"] == "assistant":
 
-            if "sql" in message:
-                with st.expander("🧠 Generated SQL", expanded=False):
-                    st.code(message["sql"], language="sql")
+            if message.get("sql"):
+                render_sql(message["sql"])
 
             if "rows" in message:
                 rows = message["rows"]
@@ -1159,63 +1404,58 @@ if question:
         }
     )
 
-    with st.spinner("🎵 Spotify AI is analyzing your data..."):
+    try:
+        response = call_backend_with_progress(question)
 
-        try:
-            response = requests.post(
-                ASK_ENDPOINT,
-                json={"question": question},
-                timeout=120,
+        if response is not None and response.status_code == 200:
+
+            data = response.json()
+
+            answer = data.get("answer", "")
+            sql = data.get("generated_sql", "")
+            rows = data.get("rows", [])
+
+            with st.chat_message("assistant"):
+
+                render_answer(answer)
+
+                render_sql(sql)
+
+                render_results(rows)
+
+            st.session_state.messages.append(
+                {
+                    "role": "assistant",
+                    "content": answer,
+                    "sql": sql,
+                    "rows": rows,
+                }
             )
 
-            if response.status_code == 200:
-
-                data = response.json()
-
-                answer = data.get("answer", "")
-                sql = data.get("generated_sql", "")
-                rows = data.get("rows", [])
-
-                with st.chat_message("assistant"):
-
-                    st.markdown(answer)
-
-                    render_sql(sql)
-
-                    render_results(rows)
-
-                st.session_state.messages.append(
-                    {
-                        "role": "assistant",
-                        "content": answer,
-                        "sql": sql,
-                        "rows": rows,
-                    }
-                )
-
-            else:
-                with st.chat_message("assistant"):
-                    st.markdown(
-                        f"""
-                        <div class="error-card">
-                            ⚠️ The backend returned an error (status {response.status_code}).
-                            Please try rephrasing your question or try again shortly.
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-        except requests.exceptions.RequestException:
+        elif response is not None:
             with st.chat_message("assistant"):
                 st.markdown(
-                    """
+                    f"""
                     <div class="error-card">
-                        ⚠️ Couldn't reach the Spotify Intelligence backend. Please make sure
-                        the API server is running and try again.
+                        ⚠️ The backend returned an error (status {response.status_code}).
+                        Please try rephrasing your question or try again shortly.
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
+
+    except requests.exceptions.RequestException:
+        with st.chat_message("assistant"):
+            st.markdown(
+                """
+                <div class="error-card">
+                    ⚠️ Unable to reach the backend.<br>
+                    If this is your first request after some time, Render may be waking up.
+                    Please wait 30–90 seconds and try again.
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 # =====================================================
 # FOOTER
@@ -1229,10 +1469,11 @@ st.markdown(
             <span class="tech-badge">PostgreSQL</span>
             <span class="tech-badge">LangChain</span>
             <span class="tech-badge">Groq</span>
-            <span class="tech-badge">Chroma</span>
+            <span class="tech-badge">Jina Embeddings</span>
+            <span class="tech-badge">ChromaDB</span>
             <span class="tech-badge">Streamlit</span>
         </div>
-        Built with FastAPI &middot; PostgreSQL &middot; LangChain &middot; Groq &middot; Chroma &middot; Streamlit
+        Built with FastAPI &middot; PostgreSQL &middot; LangChain &middot; Groq &middot; Jina Embeddings &middot; ChromaDB &middot; Streamlit
     </div>
     """,
     unsafe_allow_html=True,
