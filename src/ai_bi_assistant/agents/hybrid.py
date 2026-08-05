@@ -1,3 +1,4 @@
+import traceback
 import pandas as pd
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -74,7 +75,7 @@ def summarize_sql(rows):
     summary.append(f"Rows Returned: {len(df)}")
     summary.append(f"Columns: {', '.join(df.columns)}")
     summary.append("")
-    summary.append(df.head(10).to_markdown(index=False))
+    summary.append(df.head(10).to_string(index=False))
 
     return "\n".join(summary)
 
@@ -85,73 +86,110 @@ def summarize_sql(rows):
 
 def hybrid_answer(question: str):
 
-    # --------------------------------------------
-    # Step 1 : Decompose Question
-    # --------------------------------------------
+    try:
 
-    parts = decompose_question(question)
+        # --------------------------------------------
+        # Step 1 : Decompose Question
+        # --------------------------------------------
 
-    sql_question = parts.get("sql_question", "").strip()
-    rag_question = parts.get("rag_question", "").strip()
+        parts = decompose_question(question)
 
-    print("=" * 70)
-    print("SQL QUESTION")
-    print(sql_question)
+        print("=" * 80)
+        print("DECOMPOSER OUTPUT")
+        print(parts)
+        print("=" * 80)
 
-    print("=" * 70)
-    print("RAG QUESTION")
-    print(rag_question)
-    print("=" * 70)
+        sql_question = parts.get("sql_question", "").strip()
+        rag_question = parts.get("rag_question", "").strip()
 
-    # --------------------------------------------
-    # Step 2 : SQL
-    # --------------------------------------------
+        print("=" * 80)
+        print("SQL QUESTION")
+        print(repr(sql_question))
 
-    rows = []
-    sql = ""
+        print("=" * 80)
+        print("RAG QUESTION")
+        print(repr(rag_question))
+        print("=" * 80)
 
-    if sql_question:
+        # --------------------------------------------
+        # Step 2 : SQL
+        # --------------------------------------------
 
-        sql = generate_sql(sql_question)
+        rows = []
+        sql = ""
 
-        validate_sql(sql)
+        if sql_question:
 
-        rows = execute_sql(sql)
+            print("Generating SQL...")
 
-    sql_summary = summarize_sql(rows)
+            sql = generate_sql(sql_question)
 
-    # --------------------------------------------
-    # Step 3 : Retrieve Documents
-    # --------------------------------------------
+            print("=" * 80)
+            print("GENERATED SQL")
+            print(sql)
+            print("=" * 80)
 
-    document_context = ""
+            print("Validating SQL...")
+            validate_sql(sql)
+            print("SQL VALIDATED")
 
-    if rag_question:
+            print("Executing SQL...")
 
-        docs = retrieve_documents(
-            rag_question,
-            k=5,
+            rows = execute_sql(sql)
+
+            print(f"ROWS RETURNED: {len(rows)}")
+
+        sql_summary = summarize_sql(rows)
+
+        # --------------------------------------------
+        # Step 3 : Retrieve Documents
+        # --------------------------------------------
+
+        document_context = ""
+
+        if rag_question:
+
+            print("Retrieving RAG documents...")
+
+            docs = retrieve_documents(
+                rag_question,
+                k=5,
+            )
+
+            print(f"Retrieved {len(docs)} documents.")
+
+            document_context = "\n\n".join(
+                doc.page_content
+                for doc in docs
+            )
+
+        # --------------------------------------------
+        # Step 4 : Final LLM
+        # --------------------------------------------
+
+        print("Generating final answer...")
+
+        response = chain.invoke(
+            {
+                "question": question,
+                "sql_results": sql_summary,
+                "document_context": document_context,
+            }
         )
 
-        document_context = "\n\n".join(
-            doc.page_content
-            for doc in docs
-        )
+        print("Hybrid pipeline completed successfully.")
 
-    # --------------------------------------------
-    # Step 4 : Final LLM
-    # --------------------------------------------
-
-    response = chain.invoke(
-        {
-            "question": question,
-            "sql_results": sql_summary,
-            "document_context": document_context,
+        return {
+            "answer": response.content,
+            "sql": sql,
+            "rows": rows,
         }
-    )
 
-    return {
-        "answer": response.content,
-        "sql": sql,
-        "rows": rows,
-    }
+    except Exception:
+
+        print("=" * 80)
+        print("HYBRID PIPELINE ERROR")
+        traceback.print_exc()
+        print("=" * 80)
+
+        raise
