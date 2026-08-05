@@ -103,10 +103,11 @@ def retrieve_documents(question: str, k: int = 2):
 
     vector_db = get_vector_db()
 
-    docs = vector_db.similarity_search(
-        str(question),
-        k=k,
-    )
+    docs = vector_db.max_marginal_relevance_search(
+    query=str(question),
+    k=5,
+    fetch_k=20,
+)
 
     print(f"Retrieved {len(docs)} documents.")
 
