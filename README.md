@@ -259,6 +259,9 @@ Dashboard Export (PDF/Excel)
 Streaming Responses
 Citation Highlighting
 Multi-Database Support
+
+Note: This project is a demonstration of an AI-powered Business Intelligence workflow. The structured analytics are generated from the sample CSV datasets included in the repository, while document-based answers are generated from the Spotify Annual Reports and SEC filings provided in the documents/ folder. This keeps the project fully reproducible without relying on external or live data sources.
+
 👨‍💻 Author
 
 Aadesh Sharma
