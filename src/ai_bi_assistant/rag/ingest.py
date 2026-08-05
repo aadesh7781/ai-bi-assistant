@@ -1,4 +1,5 @@
 import os
+import shutil
 import requests
 
 from dotenv import load_dotenv
@@ -20,7 +21,7 @@ class JinaEmbeddings(Embeddings):
     def embed_documents(self, texts):
         embeddings = []
 
-        print(f"Creating embeddings for {len(texts)} chunks...")
+        print(f"\nCreating embeddings for {len(texts)} chunks...\n")
 
         for i, text in enumerate(texts):
 
@@ -43,12 +44,15 @@ class JinaEmbeddings(Embeddings):
                 response.json()["data"][0]["embedding"]
             )
 
-            if (i + 1) % 50 == 0:
-                print(f"{i + 1}/{len(texts)} embeddings created...")
+            if (i + 1) % 25 == 0:
+                print(f"✓ {i + 1}/{len(texts)} chunks embedded")
+
+        print("\nFinished creating embeddings.\n")
 
         return embeddings
 
     def embed_query(self, text):
+
         response = requests.post(
             self.url,
             headers={
@@ -69,9 +73,9 @@ class JinaEmbeddings(Embeddings):
 
 def ingest_documents():
 
-    print("=" * 60)
+    print("=" * 70)
     print("RAG DOCUMENT INGESTION")
-    print("=" * 60)
+    print("=" * 70)
 
     pdf_folder = "documents"
 
@@ -93,19 +97,23 @@ def ingest_documents():
                 os.path.join(pdf_folder, file)
             )
 
-            documents.extend(loader.load())
+            docs = loader.load()
 
-    if len(documents) == 0:
+            print(f"Loaded {len(docs)} pages.")
+
+            documents.extend(docs)
+
+    if not documents:
         print("No PDF documents found.")
         return
 
-    print(f"\nLoaded {len(documents)} pages.")
+    print(f"\nTotal pages loaded: {len(documents)}")
 
-    print("\nSplitting documents...")
+    print("\nSplitting documents...\n")
 
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=150,
+        chunk_size=1200,
+        chunk_overlap=250,
     )
 
     chunks = splitter.split_documents(documents)
@@ -115,10 +123,10 @@ def ingest_documents():
     embeddings = JinaEmbeddings()
 
     if os.path.exists("chroma_db"):
-        import shutil
+        print("\nRemoving old Chroma database...")
         shutil.rmtree("chroma_db")
 
-    print("\nCreating Chroma database...")
+    print("\nCreating new Chroma database...\n")
 
     Chroma.from_documents(
         documents=chunks,
@@ -126,9 +134,12 @@ def ingest_documents():
         persist_directory="chroma_db",
     )
 
-    print("\n✅ Vector database created successfully!")
-    print(f"Stored {len(chunks)} chunks.")
-    print(f"Location: {os.path.abspath('chroma_db')}")
+    print("\n" + "=" * 70)
+    print("VECTOR DATABASE CREATED SUCCESSFULLY")
+    print("=" * 70)
+    print(f"Chunks stored : {len(chunks)}")
+    print(f"Location      : {os.path.abspath('chroma_db')}")
+    print("=" * 70)
 
 
 if __name__ == "__main__":
