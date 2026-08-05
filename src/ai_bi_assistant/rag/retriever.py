@@ -40,6 +40,13 @@ class JinaEmbeddings(Embeddings):
         return embeddings
 
     def embed_query(self, text):
+
+        print("=" * 80)
+        print("EMBED QUERY CALLED")
+        print("VALUE :", repr(text))
+        print("TYPE  :", type(text))
+        print("=" * 80)
+
         response = requests.post(
             self.url,
             headers={
@@ -48,10 +55,13 @@ class JinaEmbeddings(Embeddings):
             },
             json={
                 "model": self.model,
-                "input": text,
+                "input": str(text),
             },
             timeout=60,
         )
+
+        print("STATUS:", response.status_code)
+        print("BODY:", response.text)
 
         response.raise_for_status()
 
