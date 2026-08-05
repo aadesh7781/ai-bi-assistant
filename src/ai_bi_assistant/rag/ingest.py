@@ -1,22 +1,73 @@
 import os
+import requests
 
 from dotenv import load_dotenv
 
+from langchain_core.embeddings import Embeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import Chroma
-
-from langchain_openai import OpenAIEmbeddings
-
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 load_dotenv()
 
 
+class JinaEmbeddings(Embeddings):
+    def __init__(self):
+        self.api_key = os.getenv("JINA_API_KEY")
+        self.url = "https://api.jina.ai/v1/embeddings"
+        self.model = "jina-embeddings-v3"
+
+    def embed_documents(self, texts):
+        embeddings = []
+
+        print(f"Creating embeddings for {len(texts)} chunks...")
+
+        for i, text in enumerate(texts):
+
+            response = requests.post(
+                self.url,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.model,
+                    "input": text,
+                },
+                timeout=60,
+            )
+
+            response.raise_for_status()
+
+            embeddings.append(
+                response.json()["data"][0]["embedding"]
+            )
+
+            if (i + 1) % 50 == 0:
+                print(f"{i + 1}/{len(texts)} embeddings created...")
+
+        return embeddings
+
+    def embed_query(self, text):
+        response = requests.post(
+            self.url,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": self.model,
+                "input": text,
+            },
+            timeout=60,
+        )
+
+        response.raise_for_status()
+
+        return response.json()["data"][0]["embedding"]
+
+
 def ingest_documents():
-    """
-    Load PDFs, split them into chunks, create embeddings,
-    and store them inside a Chroma vector database.
-    """
 
     print("=" * 60)
     print("RAG DOCUMENT INGESTION")
@@ -61,15 +112,13 @@ def ingest_documents():
 
     print(f"Created {len(chunks)} chunks.")
 
-    print("\nConnecting to Jina AI...")
+    embeddings = JinaEmbeddings()
 
-    embeddings = OpenAIEmbeddings(
-        api_key=os.getenv("JINA_API_KEY"),
-        base_url="https://api.jina.ai/v1",
-        model="jina-embeddings-v3",
-    )
+    if os.path.exists("chroma_db"):
+        import shutil
+        shutil.rmtree("chroma_db")
 
-    print("Creating Chroma vector database...")
+    print("\nCreating Chroma database...")
 
     Chroma.from_documents(
         documents=chunks,
@@ -78,9 +127,7 @@ def ingest_documents():
     )
 
     print("\n✅ Vector database created successfully!")
-
     print(f"Stored {len(chunks)} chunks.")
-
     print(f"Location: {os.path.abspath('chroma_db')}")
 
 
