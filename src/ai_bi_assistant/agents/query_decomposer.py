@@ -7,24 +7,70 @@ from ai_bi_assistant.agents.llm import llm
 
 prompt = ChatPromptTemplate.from_template(
 """
-You are an AI planner.
+You are an AI Business Intelligence planner.
 
-Split the user's question into two parts.
+Your ONLY job is to split the user's question into two natural language questions.
 
-Return ONLY valid JSON with exactly these keys:
+DO NOT generate SQL.
+DO NOT generate database queries.
+DO NOT write SELECT statements.
 
-- sql_question
-- rag_question
+Return ONLY valid JSON in this format:
+
+{{
+    "sql_question": "...",
+    "rag_question": "..."
+}}
 
 Rules:
 
-- sql_question should contain ONLY the database-related part.
-- rag_question should contain ONLY the document/report-related part.
-- If one part is unnecessary, return an empty string.
-- Return ONLY JSON.
-- Do not wrap the JSON in markdown.
+1. sql_question should describe ONLY the information needed from the SQL database.
+2. rag_question should describe ONLY the information needed from the uploaded reports.
+3. Both questions MUST remain in plain English.
+4. If SQL is not required, return "".
+5. If RAG is not required, return "".
+6. Never invent information.
+7. Never output markdown.
 
-User Question:
+Examples
+
+User:
+Show revenue by country.
+
+Output:
+{{
+    "sql_question": "Show revenue by country.",
+    "rag_question": ""
+}}
+
+User:
+What is Spotify's AI strategy?
+
+Output:
+{{
+    "sql_question": "",
+    "rag_question": "What is Spotify's AI strategy according to the annual report?"
+}}
+
+User:
+Compare our revenue with Spotify's reported revenue.
+
+Output:
+{{
+    "sql_question": "What is our total revenue?",
+    "rag_question": "What revenue did Spotify report in its annual report?"
+}}
+
+User:
+Compare our growth with Spotify's reported growth.
+
+Output:
+{{
+    "sql_question": "What is our revenue growth?",
+    "rag_question": "What growth did Spotify report in its annual report?"
+}}
+
+Question:
 
 {question}
 """
@@ -51,5 +97,12 @@ def decompose_question(question: str):
 
     if text.endswith("```"):
         text = text[:-3]
+
+    text = text.strip()
+
+    print("=" * 70)
+    print("DECOMPOSER OUTPUT")
+    print(text)
+    print("=" * 70)
 
     return json.loads(text)

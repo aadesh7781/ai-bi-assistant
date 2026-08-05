@@ -1,16 +1,12 @@
 def route_question(question: str) -> str:
     """
-    Route a user question to one of:
+    Routes the question to:
     - sql
     - rag
     - hybrid
     """
 
     q = question.lower()
-
-    # ===========================
-    # Hybrid Keywords
-    # ===========================
 
     hybrid_keywords = [
         "compare",
@@ -19,63 +15,55 @@ def route_question(question: str) -> str:
         "vs",
         "against",
         "along with",
-        "according to",
-        "how does our",
-        "compare our",
-        "our data and",
-        "our revenue and",
-        "our streams and",
-        "our popularity and",
+        "our",
     ]
 
-    # ===========================
-    # RAG Keywords
-    # ===========================
-
     rag_keywords = [
+        "spotify",
         "annual report",
         "report",
         "strategy",
         "risk",
-        "spotify",
+        "financial risk",
         "ceo",
-        "podcast",
-        "podcasts",
-        "audiobook",
-        "audiobooks",
-        "investor",
-        "shareholder",
         "business model",
         "mission",
         "vision",
-        "future plans",
-        "financial report",
+        "future",
+        "investor",
+        "shareholder",
         "20-f",
         "filing",
         "management",
         "chairman",
+        "ai",
+        "machine learning",
     ]
 
-    # ----------------------------
-    # HYBRID FIRST
-    # ----------------------------
+    sql_keywords = [
+        "revenue",
+        "sales",
+        "artist",
+        "genre",
+        "country",
+        "stream",
+        "streams",
+        "monthly",
+        "yearly",
+        "growth",
+        "profit",
+        "customers",
+        "users",
+    ]
 
-    if any(keyword in q for keyword in hybrid_keywords):
+    has_sql = any(word in q for word in sql_keywords)
+    has_rag = any(word in q for word in rag_keywords)
+    has_compare = any(word in q for word in hybrid_keywords)
 
-        if any(keyword in q for keyword in rag_keywords):
-            return "hybrid"
+    if has_compare and has_sql and has_rag:
+        return "hybrid"
 
-        return "sql"
-
-    # ----------------------------
-    # RAG
-    # ----------------------------
-
-    if any(keyword in q for keyword in rag_keywords):
+    if has_rag and not has_sql:
         return "rag"
-
-    # ----------------------------
-    # SQL
-    # ----------------------------
 
     return "sql"
