@@ -59,7 +59,7 @@ into one grounded answer.
 
 Example:
 
-Compare our revenue with Spotify's reported revenue.
+Compare our revenue with Spotify's reported revenue
 
 The system automatically:
 
